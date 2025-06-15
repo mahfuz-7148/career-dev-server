@@ -22,13 +22,36 @@ const client = new MongoClient(uri, {
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect();
+        // await client.connect();
 
         const jobsCollection = client.db('careerDev').collection('jobs')
         const applicationsCollection = client.db('careerDev').collection('applications')
 
         app.get('/jobs', async (req, res) => {
-            const result = await jobsCollection.find().toArray()
+            const query = {}
+            if (req.query.email){
+                query.hr_email = req.query.email
+            }
+            const result = await jobsCollection.find(query).toArray()
+            res.send(result)
+        })
+
+        app.get('/jobs/applications', async (req, res) => {
+            const jobs = await jobsCollection.find({
+                hr_email: req.query.email
+            }).toArray()
+
+            for (const job of jobs) {
+                const application_count = await applicationsCollection.countDocuments({
+                    jobId: job._id.toString()
+                })
+                job.application_count = application_count
+            }
+            res.send(jobs)
+        })
+
+        app.post('/jobs', async (req, res) => {
+            const result = await jobsCollection.insertOne(req.body)
             res.send(result)
         })
 
@@ -38,26 +61,31 @@ async function run() {
         });
 
         app.post('/applications', async (req, res) => {
-            const application = req.body;
-            console.log(application);
-            const result = await applicationsCollection.insertOne(application);
+            const result = await applicationsCollection.insertOne(req.body);
             res.send(result);
         });
 
+        app.patch('/applications/:id', async (req, res) => {
+            const filter = {_id: new ObjectId(req.params.id)}
+            const update = {
+                $set: {
+                    status: req.body.status
+                }
+            }
+            const result = applicationsCollection.updateOne(filter, update)
+
+            res.send(result)
+        })
+
         app.get('/applications', async (req, res) => {
 
-            const email = req.query.email;
-
-            const query = {
-                applicant: email
-            }
-            const result = await applicationsCollection.find(query).toArray()
+            const result = await applicationsCollection.find({
+                applicant:  req.query.email
+            }).toArray()
 
             for (const application of result) {
-                const jobId = application.jobId;
-                const jobQuery = { _id: new ObjectId(jobId) }
-                const job = await jobsCollection.findOne(jobQuery);
-                console.log(job)
+
+                const job = await jobsCollection.findOne({ _id: new ObjectId(application.jobId)});
 
                 application.company = job.company
                 application.title = job.title
@@ -66,9 +94,20 @@ async function run() {
 
             res.send(result)
         })
+
+        app.get('/applications/job/:id', async (req, res) => {
+            const result = await applicationsCollection.find({ jobId: req.params.id }).toArray();
+            res.send(result);
+        })
+
+
+
+
+
+
         // Send a ping to confirm a successful connection
-        await client.db("admin").command({ ping: 1 });
-        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+        // await client.db("admin").command({ ping: 1 });
+        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
     } finally {
         // Ensures that the client will close when you finish/error
 
@@ -76,10 +115,6 @@ async function run() {
 }
 run().catch(console.dir);
 
-
-app.get('/', (req, res) => {
-    res.send('hello')
-})
 
 app.listen(port, () => {
     console.log(`server ${port}`)
